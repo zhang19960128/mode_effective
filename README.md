@@ -1,1 +1,2 @@
-# mode_effective
+# mode_effective charge caculated by dynmat.x
+

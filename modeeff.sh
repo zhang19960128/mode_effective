@@ -1,10 +1,9 @@
 #!/bin/bash
 function grepnorm(){
-	count=$1;
-	atom_num=$2;
-	file_name=$3;
-    mass=$4;
-	flag="vibration";
+    count=$1;
+    file_name=$2;
+    mass=$3;
+    flag="vibration";
     atomall=${#mass[@]};
     declare -a newmode;
     grep -m$count -A $atomall "$flag" $file_name | tac | grep -m1 -B $atomall "$flag" | tac | grep -v $flag >temp1.txt;
@@ -35,19 +34,9 @@ function grepnorm(){
         allvector[$i]=`bc -l <<<"${allvector[$i]}/$factor"`;
     done
     ####################### end transform into eigenvector of dynamic matrix ########################
-    ####################### send result out ########################################################
-    declare -a re;
-    tick=`expr $atom_num - 1`;
-    tickone=`expr $tick \* 3`;
-    ticktwo=`expr $tickone + 1`;
-    tickthree=`expr $tickone + 2`;
-    re+=(${allvector[$tickone]});
-    re+=(${allvector[$ticktwo]});
-    re+=(${allvector[$tickthree]});
-    rm temp1.txt
-    echo ${re[@]}
+    echo ${allvector[@]}
 }
-function effecharge(){
+function effectcharge(){
 	flag_all="Effective Charges E-U: Z_{alpha}{s,beta}";
 	flag="atom #";
 	atom_num=$1;
@@ -63,8 +52,48 @@ function effecharge(){
 	done
   grep -A $lines "$flag_all" $file_name | grep -A 3 -E "[a]{1}[t]{1}[o]{1}[m]{1}[ ]{1}[\#]{1,10}[ ]{0,7}""$match_num" | grep -v "atom"
 }
+function matrixtime(){
+   matrix=$1;
+   vector=$2;
+   matrix=($matrix);
+   vector=($vector);
+   declare -a re=( 0 0 0 );
+   for i in `seq 0 2`
+   do
+      for j in `seq 0 2`
+      do
+         tick=`expr 3 \* $i + $j`;
+         re[$i]=`bc -l <<< "${re[$i]}+${matrix[$tick]}*${vector[$j]}"`
+      done
+   done
+   echo ${re[@]}
+}
+function vectoradd(){
+   vectorone=($1);
+   vectortwo=($2);
+   num=${#vectorone[@]};
+   num=`expr $num - 1`;
+   declare -a temp;
+   for i in `seq 0 $num`
+   do
+      temp[$i]=`bc -l <<< "${vectorone[$i]}+${vectortwo[$i]}"`;
+   done
+   echo ${temp[@]};
+}
+function vectordiv(){
+   vector=($1);
+   scalar=$2;
+   num=${#vector[@]};
+   num=`expr $num - 1`;
+   declare -a temp;
+   for i in `seq 0 $num`
+   do
+      temp[$i]=`bc -l <<< "${vector[$i]}/$scalar"`;
+   done
+   echo ${temp[@]}
+}
 atom_num=5;
-declare -a mass=();
+declare -a mass=()
 #add Oxygen mass in the array#
 for i in `seq 1 $( expr $atom_num \/ 5 \* 3 )`;
 do
@@ -84,27 +113,21 @@ file_name_born="bzo.dyn1";
 file_name_mod="dynmat.mold";
 flag="freq (";
 max_count=`grep "$flag" $file_name_born | wc -l`;
-declare -A modecharge;
+declare -A atom_i_alpha_beta;
 for mu in `seq 1 $max_count`
 do
-    for alpha in `seq 0 2`
-    do
- 	    modecharge[$alpha]="0.0";
- 	    #please see the formula in Bennet's paper
- 	    for i in `seq 1 $atom_num`
- 	    do
- 		    z_i_alpha_beta=`effecharge $i $atom_num $file_name_born | sed -n "$( expr 1 + $alpha )p"`;
-            z_i_alpha_beta=($z_i_alpha_beta);
- 		    for beta in `seq 0 2`
- 		    do
- 			    z_i_alpha_beta=${z_i_alpha_beta[$beta]};
- 		    	a_mu_i_beta=`grepnorm $mu $atom_num $file_name_mod $mass`;
- 		    	a_mu_i_beta=($a_mu_i_beta);
- 		    	a_mu_i_beta=${a_mu_i_beta[$beta]};
- 		    	add=`bc -l <<< "$z_i_alpha_beta*$a_mu_i_beta/(sqrt(${mass[$( expr $i - 1 )]}))"`
- 		    	modecharge[$alpha]=`bc -l <<< "${modecharge[$alpha]}+$add" | awk '{printf "%2.14f", $0}'`;
- 		    done
- 	    done
-    done
-    echo ${modecharge[@]}
+   modecharge="0 0 0";
+   allvector=`grepnorm $mu dynmat.mold ${mass[@]}`;
+   allvector=($allvector);
+   for j in `seq 1 $atom_num`
+   do
+      atom_i_alpha_beta=`effectcharge $j $atom_num $file_name_born`;
+      vector_j="${allvector[`expr 3 \* \( $j - 1 \)`]} ${allvector[`expr 3 \* \( $j - 1 \) + 1`]} ${allvector[`expr 3 \* \( $j - 1 \) + 2`]}";
+      contribution_j=`matrixtime "${atom_i_alpha_beta[@]}" "${vector_j[@]}"`;
+      tick=`expr $j - 1`
+      mass_sqrt=`bc -l <<< "sqrt(${mass[$tick]})"`
+      contribution_j=`vectordiv "${contribution_j[@]}" $mass_sqrt`
+      modecharge=`vectoradd "$modecharge" "${contribution_j[@]}"`
+   done
+   echo ${modecharge[@]}
 done
